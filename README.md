@@ -2,19 +2,27 @@
 
 A comprehensive, locally hosted Learning Management System (LMS) for TEF (Test d'Évaluation de Français) exam preparation.
 
+![Dashboard Screenshot](assets/img/dashboard_screenshot.png)
+*An overview of your progress and next steps.*
+
 ## 🚀 Features
 
 ### 📚 Dynamic Study Roadmap
-- **30-week curriculum** from A1 to B2
+![Your Personalized Roadmap](assets/img/dashboard_screenshot.png)
+*Track your progress through a 30-week curriculum from A1 to B2.*
+
 - **Gamification**: XP points, streaks, and progressive unlocking
 - **Grammar Lab**: AI-generated explanations + fill-in-the-blank exercises
 - **Reading Lounge**: AI-generated articles + comprehension questions
 
 ### ✍️ TEF Writing Clinic
-- 5 TEF task types (Fait Divers, Letters, Emails)
-- AI grading with official TEF rubric
-- Detailed feedback on Structure, Vocabulary, and Grammar
-- Score out of 450 points
+![AI Writing Assistant](assets/img/writing_clinic_screenshot.png)
+*Get instant, rubric-based feedback on your essays.*
+
+- **5 TEF task types** (Fait Divers, Letters, Emails)
+- **AI grading** with official TEF rubric
+- **Detailed feedback** on Structure, Vocabulary, and Grammar
+- **Score out of 450 points**
 
 ### 📖 Resource Library
 - 35+ curated free resources
