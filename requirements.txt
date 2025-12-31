@@ -1,0 +1,7 @@
+streamlit>=1.30.0
+streamlit-option-menu>=0.3.6
+ollama>=0.1.0
+
+# Optional: Voice Tutor dependencies (install only if ENABLE_VOICE_TUTOR=True)
+# openai-whisper>=20230918
+# gtts>=2.4.0
