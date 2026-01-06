@@ -1,6 +1,6 @@
 # 🇫🇷 TEF Master Cloud
 
-![TEF Master Cloud Banner](assets/hero_banner_v2.png)
+![TEF Master Cloud Banner](assets/hero_banner_final.png)
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://tef-master.streamlit.app)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
