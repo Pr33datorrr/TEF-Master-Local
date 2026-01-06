@@ -1,35 +1,57 @@
 """
-TEF Master Local - Configuration Module
-Centralized configuration for app settings, Ollama integration, and feature flags.
+TEF Master Cloud - Configuration Module
+Centralized configuration for app settings, Hybrid AI integration (Local/Cloud), and feature flags.
 """
 
 import os
 from pathlib import Path
+import streamlit as st
 
 # Base paths
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
-DB_PATH = BASE_DIR / "tef_master.db"
 
-# Ollama Configuration
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "gemma3:4b"
-OLLAMA_TIMEOUT = 120  # seconds
+# ==================== AI Configuration ====================
 
-# Feature Flags
+# AI Provider Options: "AUTO", "LOCAL", "CLOUD"
+# AUTO: Tries Local first, falls back to Cloud
+# LOCAL: Forces Local (Ollama)
+# CLOUD: Forces Cloud (Gemini)
+AI_PROVIDER = "AUTO"
+
+# Internet Search
+SEARCH_ENABLED = True
+
+# 1. Local Configuration (Ollama)
+OLLAMA_CONFIG = {
+    "base_url": "http://localhost:11434",
+    "model": "gemma3:4b",   # User confirmed local model
+    "timeout": 120
+}
+
+# 2. Cloud Configuration (Gemini)
+GEMINI_CONFIG = {
+    # Using 'gemini-2.0-flash-exp' as primary for speed/performance 
+    # but kept 'gemini-1.5-flash' variable invalid if needed.
+    # User also mentioned 'gemma-3-12b-it' might be available via API.
+    "model": "gemma-3-27b-it", 
+    "api_key_env_var": "GEMINI_API_KEY"
+}
+
+
+# ==================== Feature Flags ====================
 ENABLE_VOICE_TUTOR = False  # Set to True to enable Voice Tutor features
 
-# App Settings
-APP_TITLE = "TEF Master Local"
-APP_ICON = "📚"
-DEFAULT_PORT = 8501
-SERVER_ADDRESS = "0.0.0.0"  # For mobile network access
+# ==================== App Settings ====================
+APP_TITLE = "TEF Master Cloud"
+APP_ICON = "🇫🇷"
 
 # Gamification Settings
 XP_PER_GRAMMAR_QUESTION = 10
 XP_PER_READING_QUESTION = 15
 XP_PER_WRITING_SUBMISSION = 50
 XP_PER_VOICE_PRACTICE = 20
+XP_PER_SEARCH_QUERY = 5     # New XP for learning via search
 
 # Week unlock requirements
 QUESTIONS_TO_UNLOCK_WEEK = 20  # Complete 20 questions to unlock next week

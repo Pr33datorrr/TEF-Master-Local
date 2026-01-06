@@ -35,7 +35,9 @@ ENV/
 *~
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
+# .streamlit/config.toml # Uncomment if you want to track theme settings
+
 
 # Database
 *.db

@@ -13,7 +13,7 @@ if ENABLE_VOICE_TUTOR:
         from gtts import gTTS
         import tempfile
         import os
-        from ollama_handler import ollama_handler
+        from ai_handler import ai_handler
         from database import db
         from config import XP_PER_VOICE_PRACTICE
         DEPENDENCIES_AVAILABLE = True
@@ -64,7 +64,7 @@ def render_voice_tutor():
     
     if st.button("🎲 Generate Question"):
         with st.spinner("Generating speaking question..."):
-            question = ollama_handler.generate_speaking_question(difficulty)
+            question = ai_handler.generate_speaking_question(difficulty)
             st.session_state.voice_question = question
             
             # Generate TTS
@@ -107,7 +107,7 @@ def render_voice_tutor():
                     transcription = result["text"]
                     
                     # Evaluate
-                    evaluation = ollama_handler.evaluate_pronunciation(
+                    evaluation = ai_handler.evaluate_pronunciation(
                         transcription,
                         st.session_state.voice_question
                     )

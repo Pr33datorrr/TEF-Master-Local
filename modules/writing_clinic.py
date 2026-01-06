@@ -5,7 +5,7 @@ AI-powered essay grading with TEF rubric feedback + Research-based prompts.
 
 import streamlit as st
 from database import db
-from ollama_handler import ollama_handler
+from ai_handler import ai_handler
 from components.progress_bar import show_loading_spinner
 from config import XP_PER_WRITING_SUBMISSION, TEF_SCORE_MAX
 from data.writing_prompts import get_all_prompts, get_prompts_by_type, get_random_prompt
@@ -127,7 +127,7 @@ def render_writing_clinic():
         
         if grade_button:
             with show_loading_spinner("Analyzing your essay according to TEF rubric..."):
-                grading = ollama_handler.grade_essay(essay, prompt['type'])
+                grading = ai_handler.grade_essay(essay, prompt['type'])
                 st.session_state.writing_grading = grading
                 
                 # Award XP

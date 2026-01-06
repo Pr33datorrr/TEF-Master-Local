@@ -1,367 +1,297 @@
 """
-TEF Master Local - Database Module
-SQLite database operations for progress tracking, XP, streaks, and favorites.
+TEF Master Cloud - Database Module
+Firestore database operations for progress tracking, XP, streaks, and favorites.
 """
 
-import sqlite3
+import streamlit as st
+import firebase_admin
+from firebase_admin import credentials, firestore
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
-from config import DB_PATH
+import google.auth
 
+# Only initialize app once
+if not firebase_admin._apps:
+    try:
+        # 1. Try Streamlit Secrets (for Cloud Deployment)
+        if "firebase" in st.secrets:
+            # Create a dict from secrets that looks like service account JSON
+            cred = credentials.Certificate(dict(st.secrets["firebase"]))
+            firebase_admin.initialize_app(cred)
+        
+        # 2. Try Google Application Default Credentials (for Local Dev with gcloud)
+        else:
+            # This requires 'gcloud auth application-default login' to have been run locally
+            # or running in a GCP environment
+            cred, project_id = google.auth.default()
+            firebase_admin.initialize_app(cred, {
+                'projectId': project_id,
+            })
+            
+    except Exception as e:
+        print(f"Warning: Firebase Auth failed. Some features may not work. Error: {e}")
+        # Fallback for when we might be rebuilding during build process without secrets
+        pass
+
+def get_db():
+    """Get Firestore client."""
+    try:
+        return firestore.client()
+    except Exception:
+        return None
 
 class Database:
-    """Handles all database operations for TEF Master Local."""
+    """Handles all database operations using Firestore."""
     
-    def __init__(self, db_path: str = str(DB_PATH)):
-        self.db_path = db_path
-        self.init_database()
+    def __init__(self):
+        self.db = get_db()
+        # Fixed user ID for single-user mode (can be expanded later)
+        self.user_id = "default_user_v1"
     
-    def get_connection(self):
-        """Create a database connection."""
-        return sqlite3.connect(self.db_path)
-    
+    def _get_user_ref(self):
+        if not self.db: return None
+        return self.db.collection('users').document(self.user_id)
+        
     def init_database(self):
-        """Initialize database with required tables."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Users table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Progress tracking
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS progress (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER DEFAULT 1,
-                week_number INTEGER NOT NULL,
-                module_type TEXT NOT NULL,
-                completed BOOLEAN DEFAULT 0,
-                score INTEGER,
-                completed_at TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
-            )
-        """)
-        
-        # XP history
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS xp_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER DEFAULT 1,
-                xp_gained INTEGER NOT NULL,
-                activity TEXT NOT NULL,
-                earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
-            )
-        """)
-        
-        # Streaks
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS streaks (
-                user_id INTEGER PRIMARY KEY,
-                current_streak INTEGER DEFAULT 0,
-                best_streak INTEGER DEFAULT 0,
-                last_activity_date DATE,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
-            )
-        """)
-        
-        # Favorites
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER DEFAULT 1,
-                resource_id TEXT NOT NULL,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
-            )
-        """)
-        
-        # Completed questions tracker (to prevent duplicate XP)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS completed_questions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER DEFAULT 1,
-                question_id TEXT NOT NULL UNIQUE,
-                week_number INTEGER,
-                module_type TEXT,
-                completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(user_id)
-            )
-        """)
-        
-        # Create default user if not exists
-        cursor.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (1, 'default')")
-        cursor.execute("INSERT OR IGNORE INTO streaks (user_id, current_streak, best_streak) VALUES (1, 0, 0)")
-        
-        conn.commit()
-        conn.close()
-    
+        """
+        Initialize database. 
+        In Firestore, explicit table creation is not needed.
+        But we ensure the user document exists.
+        """
+        if not self.db: return
+
+        user_ref = self._get_user_ref()
+        doc = user_ref.get()
+        if not doc.exists:
+            user_ref.set({
+                'username': 'default',
+                'created_at': firestore.SERVER_TIMESTAMP
+            })
+            
+            # Init streak
+            self.db.collection('streaks').document(self.user_id).set({
+                'current_streak': 0,
+                'best_streak': 0,
+                'last_activity_date': None
+            })
+
     # ==================== Progress Tracking ====================
     
     def save_progress(self, week_number: int, module_type: str, completed: bool = True, 
-                     score: Optional[int] = None, user_id: int = 1):
-        """Save or update progress for a specific module."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+                     score: Optional[int] = None, user_id: str = None):
+        """Save or update progress."""
+        if not self.db: return
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            INSERT INTO progress (user_id, week_number, module_type, completed, score, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, week_number, module_type, completed, score, datetime.now()))
+        # We store progress as individual documents in a subcollection or root collection
+        # Let's use a subcollection 'progress' under the user
         
-        conn.commit()
-        conn.close()
+        progress_data = {
+            'week_number': week_number,
+            'module_type': module_type,
+            'completed': completed,
+            'score': score,
+            'completed_at': firestore.SERVER_TIMESTAMP
+        }
+        
+        # Use a composite ID to easily update/overwrite specific module progress
+        doc_id = f"week_{week_number}_{module_type}"
+        
+        self.db.collection('users').document(uid).collection('progress').document(doc_id).set(
+            progress_data
+        )
     
-    def get_week_progress(self, week_number: int, user_id: int = 1) -> Dict[str, Any]:
+    def get_week_progress(self, week_number: int, user_id: str = None) -> Dict[str, Any]:
         """Get progress for a specific week."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        if not self.db: return {'grammar': False, 'reading': False, 'writing': False, 'total_completed': 0}
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            SELECT module_type, completed, score
-            FROM progress
-            WHERE user_id = ? AND week_number = ?
-        """, (user_id, week_number))
-        
-        results = cursor.fetchall()
-        conn.close()
+        docs = self.db.collection('users').document(uid).collection('progress')\
+            .where('week_number', '==', week_number).stream()
+            
+        results = [doc.to_dict() for doc in docs]
         
         return {
-            'grammar': any(r[0] == 'grammar' and r[1] for r in results),
-            'reading': any(r[0] == 'reading' and r[1] for r in results),
-            'writing': any(r[0] == 'writing' and r[1] for r in results),
-            'total_completed': sum(1 for r in results if r[1])
+            'grammar': any(r.get('module_type') == 'grammar' and r.get('completed') for r in results),
+            'reading': any(r.get('module_type') == 'reading' and r.get('completed') for r in results),
+            'writing': any(r.get('module_type') == 'writing' and r.get('completed') for r in results),
+            'total_completed': sum(1 for r in results if r.get('completed'))
         }
     
-    def is_week_unlocked(self, week_number: int, user_id: int = 1) -> bool:
-        """Check if a week is unlocked based on previous week completion."""
-        # First 3 weeks are always unlocked for new users
+    def is_week_unlocked(self, week_number: int, user_id: str = None) -> bool:
+        """Check if a week is unlocked."""
         if week_number <= 3:
             return True
         
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        if not self.db: return False
+        uid = user_id or self.user_id
         
-        # Check if user has completed at least one module for each previous week
-        # More flexible unlock: just need SOME activity in previous weeks
-        cursor.execute("""
-            SELECT COUNT(DISTINCT week_number) 
-            FROM progress 
-            WHERE user_id = ? AND week_number < ? AND completed = 1
-        """, (user_id, week_number))
+        # Count weeks with at least one completed module
+        # Firestore counting can be expensive, but acceptable for this scale
         
-        weeks_with_progress = cursor.fetchone()[0]
-        conn.close()
+        # Get all progress items for previous weeks
+        # Note: In a large app, we would cache this "unlocked_level" on the user doc
+        docs = self.db.collection('users').document(uid).collection('progress')\
+            .where('week_number', '<', week_number)\
+            .where('completed', '==', True)\
+            .stream()
+            
+        unique_weeks = set()
+        for doc in docs:
+            unique_weeks.add(doc.to_dict().get('week_number'))
+            
+        weeks_with_progress = len(unique_weeks)
+        required_weeks = max(1, (week_number - 3) // 2)
         
-        # Unlock if user has completed at least 1 module per previous week
-        # Example: Week 5 requires progress in at least 2 previous weeks (50% of 4)
-        required_weeks = max(1, (week_number - 3) // 2)  # More lenient
         return weeks_with_progress >= required_weeks
     
     # ==================== XP Management ====================
     
-    def add_xp(self, xp_amount: int, activity: str, user_id: int = 1):
-        """Add XP for an activity."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def add_xp(self, xp_amount: int, activity: str, user_id: str = None):
+        """Add XP."""
+        if not self.db: return
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            INSERT INTO xp_history (user_id, xp_gained, activity)
-            VALUES (?, ?, ?)
-        """, (user_id, xp_amount, activity))
+        self.db.collection('users').document(uid).collection('xp_history').add({
+            'xp_gained': xp_amount,
+            'activity': activity,
+            'earned_at': firestore.SERVER_TIMESTAMP
+        })
         
-        conn.commit()
-        conn.close()
-        
-        # Update streak
-        self.update_streak(user_id)
+        self.update_streak(uid)
     
-    def get_total_xp(self, user_id: int = 1) -> int:
-        """Get total XP for a user."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def get_total_xp(self, user_id: str = None) -> int:
+        """Get total XP."""
+        if not self.db: return 0
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            SELECT COALESCE(SUM(xp_gained), 0)
-            FROM xp_history
-            WHERE user_id = ?
-        """, (user_id,))
+        # Ideally, use an aggregation query or maintain a counter
+        # For now, simple client-side sum (watch read costs if history grows huge)
+        # Optimization: We should probably store a running total in user doc
         
-        total_xp = cursor.fetchone()[0]
-        conn.close()
-        
-        return total_xp
+        docs = self.db.collection('users').document(uid).collection('xp_history').stream()
+        return sum(doc.to_dict().get('xp_gained', 0) for doc in docs)
     
-    def get_daily_xp(self, user_id: int = 1) -> int:
+    def get_daily_xp(self, user_id: str = None) -> int:
         """Get XP earned today."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        if not self.db: return 0
+        uid = user_id or self.user_id
         
-        today = date.today()
-        cursor.execute("""
-            SELECT COALESCE(SUM(xp_gained), 0)
-            FROM xp_history
-            WHERE user_id = ? AND DATE(earned_at) = ?
-        """, (user_id, today))
+        today_start = datetime.combine(date.today(), datetime.min.time())
         
-        daily_xp = cursor.fetchone()[0]
-        conn.close()
-        
-        return daily_xp
+        docs = self.db.collection('users').document(uid).collection('xp_history')\
+            .where('earned_at', '>=', today_start).stream()
+            
+        return sum(doc.to_dict().get('xp_gained', 0) for doc in docs)
     
     # ==================== Streak Management ====================
     
-    def update_streak(self, user_id: int = 1):
-        """Update streak based on activity."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def update_streak(self, user_id: str = None):
+        """Update streak."""
+        if not self.db: return
+        uid = user_id or self.user_id
         
-        # Get current streak info
-        cursor.execute("""
-            SELECT current_streak, best_streak, last_activity_date
-            FROM streaks
-            WHERE user_id = ?
-        """, (user_id,))
+        streak_ref = self.db.collection('streaks').document(uid)
+        doc = streak_ref.get()
         
-        result = cursor.fetchone()
-        if not result:
-            return
+        if not doc.exists:
+            self.init_database()
+            doc = streak_ref.get()
+            
+        data = doc.to_dict()
+        current_streak = data.get('current_streak', 0)
+        best_streak = data.get('best_streak', 0)
+        last_date_str = data.get('last_activity_date') # Stored as string YYYY-MM-DD usually for simple compare
         
-        current_streak, best_streak, last_date = result
-        today = date.today()
+        today_str = date.today().isoformat()
         
-        # Convert last_date string to date object
-        if last_date:
-            last_date = datetime.strptime(last_date, '%Y-%m-%d').date()
-            days_diff = (today - last_date).days
+        if last_date_str == today_str:
+            return # Already active today
+            
+        if last_date_str:
+            last_date = date.fromisoformat(last_date_str)
+            days_diff = (date.today() - last_date).days
+            
+            if days_diff == 1:
+                current_streak += 1
+            elif days_diff > 1:
+                current_streak = 1
         else:
-            days_diff = 0
-        
-        # Update streak logic
-        if days_diff == 0:
-            # Same day, no change
-            pass
-        elif days_diff == 1:
-            # Consecutive day
-            current_streak += 1
-            best_streak = max(best_streak, current_streak)
-        else:
-            # Streak broken
             current_streak = 1
+            
+        best_streak = max(best_streak, current_streak)
         
-        cursor.execute("""
-            UPDATE streaks
-            SET current_streak = ?, best_streak = ?, last_activity_date = ?
-            WHERE user_id = ?
-        """, (current_streak, best_streak, today, user_id))
-        
-        conn.commit()
-        conn.close()
+        streak_ref.update({
+            'current_streak': current_streak,
+            'best_streak': best_streak,
+            'last_activity_date': today_str
+        })
     
-    def get_streak(self, user_id: int = 1) -> Dict[str, int]:
-        """Get current and best streak."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def get_streak(self, user_id: str = None) -> Dict[str, int]:
+        """Get streak info."""
+        if not self.db: return {'current': 0, 'best': 0}
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            SELECT current_streak, best_streak
-            FROM streaks
-            WHERE user_id = ?
-        """, (user_id,))
-        
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            return {'current': result[0], 'best': result[1]}
+        doc = self.db.collection('streaks').document(uid).get()
+        if doc.exists:
+            data = doc.to_dict()
+            return {'current': data.get('current_streak', 0), 'best': data.get('best_streak', 0)}
         return {'current': 0, 'best': 0}
-    
+
     # ==================== Favorites ====================
     
-    def add_favorite(self, resource_id: str, user_id: int = 1):
-        """Add a resource to favorites."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def add_favorite(self, resource_id: str, user_id: str = None):
+        """Add favorite."""
+        if not self.db: return
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            INSERT OR IGNORE INTO favorites (user_id, resource_id)
-            VALUES (?, ?)
-        """, (user_id, resource_id))
-        
-        conn.commit()
-        conn.close()
+        self.db.collection('users').document(uid).collection('favorites').document(resource_id).set({
+            'resource_id': resource_id,
+            'added_at': firestore.SERVER_TIMESTAMP
+        })
     
-    def remove_favorite(self, resource_id: str, user_id: int = 1):
-        """Remove a resource from favorites."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def remove_favorite(self, resource_id: str, user_id: str = None):
+        """Remove favorite."""
+        if not self.db: return
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            DELETE FROM favorites
-            WHERE user_id = ? AND resource_id = ?
-        """, (user_id, resource_id))
-        
-        conn.commit()
-        conn.close()
+        self.db.collection('users').document(uid).collection('favorites').document(resource_id).delete()
     
-    def get_favorites(self, user_id: int = 1) -> List[str]:
-        """Get all favorite resource IDs."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+    def get_favorites(self, user_id: str = None) -> List[str]:
+        """Get favorites."""
+        if not self.db: return []
+        uid = user_id or self.user_id
         
-        cursor.execute("""
-            SELECT resource_id
-            FROM favorites
-            WHERE user_id = ?
-        """, (user_id,))
-        
-        favorites = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        
-        return favorites
+        docs = self.db.collection('users').document(uid).collection('favorites').stream()
+        return [doc.id for doc in docs]
     
-    def is_favorite(self, resource_id: str, user_id: int = 1) -> bool:
-        """Check if a resource is favorited."""
+    def is_favorite(self, resource_id: str, user_id: str = None) -> bool:
         return resource_id in self.get_favorites(user_id)
-    
-    # ==================== Question Tracking (Prevent Duplicate XP) ====================
-    
-    def is_question_completed(self, question_id: str, user_id: int = 1) -> bool:
-        """Check if a question has been completed before."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT COUNT(*) FROM completed_questions
-            WHERE user_id = ? AND question_id = ?
-        """, (user_id, question_id))
-        
-        count = cursor.fetchone()[0]
-        conn.close()
-        
-        return count > 0
-    
-    def mark_question_completed(self, question_id: str, week_number: int, 
-                               module_type: str, user_id: int = 1):
-        """Mark a question as completed."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            INSERT OR IGNORE INTO completed_questions 
-            (user_id, question_id, week_number, module_type)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, question_id, week_number, module_type))
-        
-        conn.commit()
-        conn.close()
 
+    # ==================== Question Tracking ====================
+
+    def is_question_completed(self, question_id: str, user_id: str = None) -> bool:
+        if not self.db: return False
+        uid = user_id or self.user_id
+        
+        # Use a deterministic ID for the doc to quick check existence
+        doc_id = f"{uid}_{question_id}"
+        doc = self.db.collection('completed_questions').document(doc_id).get()
+        return doc.exists
+        
+    def mark_question_completed(self, question_id: str, week_number: int, 
+                               module_type: str, user_id: str = None):
+        if not self.db: return
+        uid = user_id or self.user_id
+        
+        doc_id = f"{uid}_{question_id}"
+        self.db.collection('completed_questions').document(doc_id).set({
+            'user_id': uid,
+            'question_id': question_id,
+            'week_number': week_number,
+            'module_type': module_type,
+            'completed_at': firestore.SERVER_TIMESTAMP
+        })
 
 # Global database instance
 db = Database()

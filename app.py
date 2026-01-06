@@ -1,7 +1,7 @@
 """
-TEF Master Local - Main Application
+TEF Master Cloud - Main Application
 A comprehensive Learning Management System for TEF exam preparation.
-Powered by Ollama (Gemma 3:4b) and optimized for NVIDIA GPU.
+Powered by Google Gemini and Firebase.
 """
 
 import streamlit as st
@@ -10,8 +10,8 @@ from streamlit_option_menu import option_menu
 # Import modules
 from database import db
 from config import (
-    APP_TITLE, APP_ICON, SERVER_ADDRESS, DEFAULT_PORT, 
-    ENABLE_VOICE_TUTOR
+    APP_TITLE, APP_ICON, 
+    ENABLE_VOICE_TUTOR, GEMINI_CONFIG
 )
 from components.progress_bar import (
     display_xp_card, display_streak, display_progress_bar
@@ -20,6 +20,7 @@ from modules.roadmap import render_roadmap
 from modules.writing_clinic import render_writing_clinic
 from modules.resources import render_resources
 from modules.voice_tutor import render_voice_tutor
+from modules.ai_tutor import render_ai_tutor
 
 
 # ==================== Page Configuration ====================
@@ -130,8 +131,15 @@ def render_sidebar():
         st.markdown("- [CEFR Levels Explained](https://www.coe.int/en/web/common-european-framework-reference-languages/level-descriptions)")
         
         st.markdown("---")
-        st.caption("💻 Optimized for NVIDIA RTX 4060")
-        st.caption(f"🤖 Powered by Gemma 3:4b")
+        
+        # AI Status
+        from ai_handler import ai_handler
+        status = ai_handler.get_status()
+        st.caption(status)
+        if "Local" in status:
+             st.caption("⚡ Running locally on GPU")
+        elif "Cloud" in status:
+             st.caption(f"☁️ Running on Gemini Cloud ({GEMINI_CONFIG['model']})")
 
 
 # ==================== Main Navigation ====================
@@ -141,8 +149,8 @@ def main():
     render_sidebar()
     
     # Main navigation menu
-    menu_options = ["📚 Study Roadmap", "✍️ Writing Clinic", "📖 Resources"]
-    menu_icons = ["book", "pencil", "folder"]
+    menu_options = ["📚 Study Roadmap", "🤖 AI Tutor", "✍️ Writing Clinic", "📖 Resources"]
+    menu_icons = ["book", "robot", "pencil", "folder"]
     
     if ENABLE_VOICE_TUTOR:
         menu_options.append("🎙️ Voice Tutor")
@@ -173,6 +181,9 @@ def main():
     
     if selected == "📚 Study Roadmap":
         render_roadmap()
+
+    elif selected == "🤖 AI Tutor":
+        render_ai_tutor()
     
     elif selected == "✍️ Writing Clinic":
         render_writing_clinic()
@@ -188,7 +199,7 @@ def main():
     st.markdown(
         """
         <div style='text-align: center; color: #666; font-size: 12px;'>
-            <p>TEF Master Local | Built with Streamlit & Ollama | 
+            <p>TEF Master Cloud | Built with Streamlit & Gemini | 
             <a href='https://github.com' target='_blank'>GitHub</a></p>
         </div>
         """,
@@ -205,10 +216,10 @@ if __name__ == "__main__":
         **An error occurred:** {str(e)}
         
         **Troubleshooting:**
-        - Ensure Ollama is running (`ollama serve`)
-        - Check that Gemma 3:4b is downloaded (`ollama pull gemma3:4b`)
-        - Verify all dependencies are installed
+        - Check your internet connection
+        - Verify API keys are configured in secrets.toml
+        - Ensure Firebase credentials are valid
         
-        **Need help?** Check the setup guide or restart the application.
+        **Need help?** Check the README or restart the application.
         """)
         st.exception(e)

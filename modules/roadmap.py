@@ -5,7 +5,7 @@ Dynamic week-by-week curriculum with Grammar Lab and Reading Lounge.
 
 import streamlit as st
 from database import db
-from ollama_handler import ollama_handler
+from ai_handler import ai_handler
 from data.syllabus import TEF_SYLLABUS, get_week_data, get_all_levels
 from components.progress_bar import (
     display_week_card, display_progress_bar, show_loading_spinner
@@ -140,16 +140,21 @@ def render_grammar_lab(week_data: dict):
     
     if st.button("🎯 Generate Lesson", key="gen_grammar"):
         with show_loading_spinner("Generating grammar explanation..."):
-            explanation = ollama_handler.generate_grammar_explanation(selected_topic)
+            explanation = ai_handler.generate_grammar_explanation(selected_topic)
             st.session_state.grammar_explanation = explanation
         
         with show_loading_spinner("Creating practice questions..."):
-            questions = ollama_handler.generate_fill_in_blank_questions(selected_topic, count=5)
-            st.session_state.grammar_questions = questions
-            st.session_state.grammar_answers = {}
-            st.session_state.grammar_results = {}
-            # Create unique session key for this exercise set
-            st.session_state.grammar_session_key = f"grammar_{week_data['week']}_{selected_topic}_{hash(str(questions))}"
+            questions = ai_handler.generate_fill_in_blank_questions(selected_topic, count=5)
+            
+            if not questions:
+                st.error("⚠️ AI failed to generate questions. Please try again or switch AI providers.")
+                st.session_state.grammar_questions = []
+            else:
+                st.session_state.grammar_questions = questions
+                st.session_state.grammar_answers = {}
+                st.session_state.grammar_results = {}
+                # Create unique session key for this exercise set
+                st.session_state.grammar_session_key = f"grammar_{week_data['week']}_{selected_topic}_{hash(str(questions))}"
     
     # Display explanation
     if "grammar_explanation" in st.session_state:
@@ -157,7 +162,7 @@ def render_grammar_lab(week_data: dict):
             st.markdown(st.session_state.grammar_explanation)
     
     # Display questions
-    if "grammar_questions" in st.session_state:
+    if "grammar_questions" in st.session_state and st.session_state.grammar_questions:
         st.subheader("🎯 Practice Exercises")
         
         questions = st.session_state.grammar_questions
@@ -181,7 +186,7 @@ def render_grammar_lab(week_data: dict):
                 
                 if not already_answered and user_answer.strip():
                     if st.button("✅ Check Answer", key=f"check_{idx}", use_container_width=True):
-                        result = ollama_handler.grade_fill_in_blank(
+                        result = ai_handler.grade_fill_in_blank(
                             user_answer, q["answer"]
                         )
                         st.session_state.grammar_results[answer_key] = result
@@ -217,8 +222,11 @@ def render_grammar_lab(week_data: dict):
             st.success(f"🎉 Exercise Complete! Score: {correct_count}/{len(questions)}")
             
             # Save progress
-            score = int((correct_count / len(questions)) * 100)
-            db.save_progress(week_data["week"], "grammar", True, score)
+            if len(questions) > 0:
+                score = int((correct_count / len(questions)) * 100)
+                db.save_progress(week_data["week"], "grammar", True, score)
+            else:
+                db.save_progress(week_data["week"], "grammar", True, 0)
             
             if st.button("🔄 Try Another Topic"):
                 for key in ["grammar_explanation", "grammar_questions", "grammar_answers", "grammar_results"]:
@@ -245,14 +253,14 @@ def render_reading_lounge(week_data: dict):
     
     if st.button("📰 Generate Article", key="gen_article"):
         with show_loading_spinner("Generating authentic French article..."):
-            article = ollama_handler.generate_reading_article(
+            article = ai_handler.generate_reading_article(
                 selected_topic, 
                 difficulty=week_data["level"]
             )
             st.session_state.reading_article = article
         
         with show_loading_spinner("Creating comprehension questions..."):
-            questions = ollama_handler.generate_reading_questions(article, count=5)
+            questions = ai_handler.generate_reading_questions(article, count=5)
             st.session_state.reading_questions = questions
             st.session_state.reading_results = {}
     
