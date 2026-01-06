@@ -5,6 +5,19 @@ Powered by Google Gemini and Firebase.
 """
 
 import streamlit as st
+import warnings
+import logging
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+# Specific suppression for the httplib2 noise if possible, usually Deprecation covers it
+
+# Configure logging to reduce noise
+logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+logging.getLogger("httplib2").setLevel(logging.ERROR)
+
 from streamlit_option_menu import option_menu
 
 # Import modules

@@ -1,6 +1,6 @@
 streamlit
 streamlit-option-menu
-google-genai
+google-generativeai
 firebase-admin
 ollama
 ddgs

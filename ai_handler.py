@@ -8,7 +8,7 @@ import os
 import streamlit as st
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Union
-from google import genai
+import google.generativeai as genai
 import ollama
 from ddgs import DDGS
 from config import GEMINI_CONFIG, OLLAMA_CONFIG, AI_PROVIDER, SEARCH_ENABLED
@@ -91,7 +91,7 @@ class OllamaProvider(AIProvider):
 
 
 class GeminiProvider(AIProvider):
-    """Cloud AI Provider using new Google GenAI SDK (v1.0+)."""
+    """Cloud AI Provider using Google Gemini (google.generativeai)."""
     
     def __init__(self):
         self._name = f"Cloud ({GEMINI_CONFIG['model']})"
@@ -100,16 +100,17 @@ class GeminiProvider(AIProvider):
         self._setup_api()
     
     def _setup_api(self):
-        self.api_key = None
+        api_key = None
         # Priority: 1. Streamlit Secrets, 2. Environment Variable
         if "GEMINI_API_KEY" in st.secrets:
-            self.api_key = st.secrets["GEMINI_API_KEY"]
+            api_key = st.secrets["GEMINI_API_KEY"]
         elif GEMINI_CONFIG['api_key_env_var'] in os.environ:
-            self.api_key = os.environ[GEMINI_CONFIG['api_key_env_var']]
+            api_key = os.environ[GEMINI_CONFIG['api_key_env_var']]
             
-        if self.api_key:
+        if api_key:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel(self.model_name)
                 self._available = True
             except:
                 self._available = False
@@ -127,49 +128,45 @@ class GeminiProvider(AIProvider):
     def generate_text(self, prompt: str, system_prompt: str = "") -> str:
         if not self._available: raise Exception("Gemini API not configured")
         
-        config = {'temperature': 0.7}
+        config = genai.types.GenerationConfig(temperature=0.7)
         final_prompt = prompt
-        
-        # Gemma models (via Google API) do not support 'system_instruction' param
-        # We must merge it into the user prompt.
         is_gemma = "gemma" in self.model_name.lower()
         
         if system_prompt:
              if is_gemma:
-                 # Check if the user specifically requested structured formatting for the model
-                 # otherwise just clear separation
                  final_prompt = f"{system_prompt}\n\n{prompt}"
              else:
-                 config['system_instruction'] = system_prompt
+                 # Old SDK uses 'system_instruction' in model init or careful handling
+                 # But it's safer to just prepend for old SDK usually?
+                 # Actually google-generativeai >= 0.5.0 supports system_instruction at model level
+                 # But since we init model once, prepending is safer for dynamic system prompts
+                 # UNLESS we re-init model? No too expensive.
+                 # Let's just prepend for EVERYONE with the old SDK to be safe?
+                 # Actually, earlier I prepended it. Let's do that.
+                 final_prompt = f"{system_prompt}\n\n{prompt}"
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=final_prompt,
-            config=config
+        response = self.model.generate_content(
+            final_prompt,
+            generation_config=config
         )
         return response.text
 
     def generate_json(self, prompt: str, system_prompt: str = "") -> str:
         if not self._available: raise Exception("Gemini API not configured")
         
-        config = {'temperature': 0.7}
+        config = genai.types.GenerationConfig(temperature=0.7)
         final_prompt = prompt
         is_gemma = "gemma" in self.model_name.lower()
 
         if not is_gemma:
-            # Only Gemini models support native JSON mode via API param
-            config['response_mime_type'] = 'application/json'
+            config.response_mime_type = 'application/json'
 
         if system_prompt:
-            if is_gemma:
-                final_prompt = f"{system_prompt}\n\n{prompt}"
-            else:
-                config['system_instruction'] = system_prompt
+             final_prompt = f"{system_prompt}\n\n{prompt}"
 
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=final_prompt,
-            config=config
+        response = self.model.generate_content(
+            final_prompt,
+            generation_config=config
         )
         return response.text
 
