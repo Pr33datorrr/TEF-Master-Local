@@ -3,5 +3,5 @@ streamlit-option-menu
 google-generativeai
 firebase-admin
 ollama
-ddgs
+duckduckgo-search>=6.0
 beautifulsoup4

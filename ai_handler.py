@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any, Union
 import google.generativeai as genai
 import ollama
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from config import GEMINI_CONFIG, OLLAMA_CONFIG, AI_PROVIDER, SEARCH_ENABLED
 
 class AIProvider(ABC):
